@@ -40,7 +40,7 @@ class PublisherEditorWidget(QWidget):
     def initUI(self):
         layout = QVBoxLayout()
         
-        # Selección de modo: Formulario Dinámico o JSON
+        # Selección de modo (Formulario Dinámico o JSON)
         modeLayout = QHBoxLayout()
         modeLayout.addWidget(QLabel("Editar en:"))
         self.editModeSelector = QComboBox()
@@ -68,23 +68,18 @@ class PublisherEditorWidget(QWidget):
         commonLayout.addWidget(self.commonTimeEdit)
         layout.addLayout(commonLayout)
         
-        # Área de previsualización: pestañas para JSON y Árbol
+        # Área de previsualización: QTabWidget con dos pestañas (JSON y Árbol)
         self.previewTabWidget = QTabWidget()
-        
-        # Vista en JSON (texto)
         self.jsonPreview = QTextEdit()
         self.jsonPreview.setReadOnly(True)
         self.previewTabWidget.addTab(self.jsonPreview, "JSON")
-        
-        # Vista en árbol (jerárquica)
         self.treePreview = QTreeWidget()
         self.treePreview.setColumnCount(2)
-        self.treePreview.setHeaderLabels(["Clave", "Valor"])
+        self.treePreview.setHeaderLabels(["Campo", "Valor"])
         self.previewTabWidget.addTab(self.treePreview, "Árbol")
-        
         layout.addWidget(self.previewTabWidget)
         
-        # Widget dinámico para editar el JSON (formulario dinámico)
+        # Widget dinámico para editar el JSON
         from .pubDynamicForm import DynamicPublisherMessageForm
         self.dynamicWidget = DynamicPublisherMessageForm(self)
         layout.addWidget(self.dynamicWidget)
@@ -98,10 +93,8 @@ class PublisherEditorWidget(QWidget):
         try:
             with open(filepath, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            # Actualiza la vista en JSON y en árbol
             self.jsonPreview.setPlainText(json.dumps(data, indent=2, ensure_ascii=False))
             self.buildTreePreview(data)
-            # Actualiza el formulario dinámico
             self.dynamicWidget.build_form(data)
         except Exception as e:
             QMessageBox.critical(self, "Error", f"No se pudo cargar el JSON:\n{e}")
