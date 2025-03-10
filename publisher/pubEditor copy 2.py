@@ -1,9 +1,7 @@
 # publisher/pubEditor.py
-
 import json
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QComboBox,
-                             QTextEdit, QFormLayout, QScrollArea, QFileDialog, QMessageBox, QTabWidget,
-                             QTreeWidget, QTreeWidgetItem)
+                             QTextEdit, QFormLayout, QScrollArea, QFileDialog, QMessageBox, QTabWidget, QTreeWidget, QTreeWidgetItem)
 from PyQt5.QtCore import Qt
 
 def build_tree_items(data):
@@ -42,12 +40,11 @@ class PublisherEditorWidget(QWidget):
     def initUI(self):
         layout = QVBoxLayout()
         
-        # Selección de modo: "Formulario Dinámico" o "JSON"
+        # Selección de modo: Formulario Dinámico o JSON
         modeLayout = QHBoxLayout()
         modeLayout.addWidget(QLabel("Editar en:"))
         self.editModeSelector = QComboBox()
         self.editModeSelector.addItems(["Formulario Dinámico", "JSON"])
-        self.editModeSelector.currentTextChanged.connect(self.switchMode)
         modeLayout.addWidget(self.editModeSelector)
         layout.addLayout(modeLayout)
         
@@ -71,15 +68,15 @@ class PublisherEditorWidget(QWidget):
         commonLayout.addWidget(self.commonTimeEdit)
         layout.addLayout(commonLayout)
         
-        # Área de previsualización: pestañas para "JSON" y "Árbol"
+        # Área de previsualización: pestañas para JSON y Árbol
         self.previewTabWidget = QTabWidget()
         
-        # Pestaña JSON: muestra el contenido en texto (editable)
+        # Vista en JSON (texto)
         self.jsonPreview = QTextEdit()
-        self.jsonPreview.setReadOnly(False)
+        self.jsonPreview.setReadOnly(True)
         self.previewTabWidget.addTab(self.jsonPreview, "JSON")
         
-        # Pestaña Árbol: muestra el contenido de forma jerárquica
+        # Vista en árbol (jerárquica)
         self.treePreview = QTreeWidget()
         self.treePreview.setColumnCount(2)
         self.treePreview.setHeaderLabels(["Clave", "Valor"])
@@ -87,28 +84,13 @@ class PublisherEditorWidget(QWidget):
         
         layout.addWidget(self.previewTabWidget)
         
-        # Widget dinámico para editar el JSON (Formulario Dinámico)
+        # Widget dinámico para editar el JSON (formulario dinámico)
         from .pubDynamicForm import DynamicPublisherMessageForm
         self.dynamicWidget = DynamicPublisherMessageForm(self)
         layout.addWidget(self.dynamicWidget)
         
         self.setLayout(layout)
         
-    def switchMode(self, mode):
-        """
-        Muestra u oculta el formulario dinámico y el editor de JSON según el modo seleccionado.
-        """
-        if mode == "Formulario Dinámico":
-            self.jsonPreview.hide()
-            self.dynamicWidget.show()
-        else:
-            self.dynamicWidget.hide()
-            # Si el editor JSON está vacío, lo actualizamos con los datos del formulario
-            if not self.jsonPreview.toPlainText().strip():
-                data = self.dynamicWidget.collect_form_data(self.dynamicWidget.formLayout)
-                self.jsonPreview.setPlainText(json.dumps(data, indent=2, ensure_ascii=False))
-            self.jsonPreview.show()
-            
     def loadJSONFromFile(self):
         filepath, _ = QFileDialog.getOpenFileName(self, "Seleccione un archivo JSON", "", "JSON Files (*.json);;All Files (*)")
         if not filepath:
@@ -116,7 +98,7 @@ class PublisherEditorWidget(QWidget):
         try:
             with open(filepath, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            # Actualiza la previsualización en ambas pestañas
+            # Actualiza la vista en JSON y en árbol
             self.jsonPreview.setPlainText(json.dumps(data, indent=2, ensure_ascii=False))
             self.buildTreePreview(data)
             # Actualiza el formulario dinámico
