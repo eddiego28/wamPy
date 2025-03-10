@@ -1,10 +1,17 @@
 # publisher/pubEditor.py
+
 import json
-from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QComboBox,
-                             QTextEdit, QFormLayout, QScrollArea, QFileDialog, QMessageBox, QTabWidget, QTreeWidget, QTreeWidgetItem)
+from PyQt5.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QComboBox,
+    QTextEdit, QTabWidget, QTreeWidget, QTreeWidgetItem, QFileDialog, QMessageBox
+)
 from PyQt5.QtCore import Qt
 
 def build_tree_items(data):
+    """
+    Construye recursivamente una lista de QTreeWidgetItem a partir de un diccionario o lista.
+    Cada item muestra la clave en la primera columna y, si es un valor simple, lo muestra en la segunda.
+    """
     items = []
     if isinstance(data, dict):
         for key, value in data.items():
@@ -34,70 +41,45 @@ class PublisherEditorWidget(QWidget):
         self.initUI()
         
     def initUI(self):
-        layout = QVBoxLayout()
-        
-        # Selección de modo: "Formulario Dinámico" o "JSON"
-        modeLayout = QHBoxLayout()
-        modeLayout.addWidget(QLabel("Editar en:"))
-        self.editModeSelector = QComboBox()
-        self.editModeSelector.addItems(["Formulario Dinámico", "JSON"])
-        self.editModeSelector.currentTextChanged.connect(self.switchMode)
-        modeLayout.addWidget(self.editModeSelector)
-        layout.addLayout(modeLayout)
-        
+        mainLayout = QVBoxLayout()
+
         # Botones para cargar y convertir JSON
+        btnLayout = QHBoxLayout()
         self.importButton = QPushButton("Cargar JSON desde Archivo")
         self.importButton.clicked.connect(self.loadJSONFromFile)
-        layout.addWidget(self.importButton)
+        btnLayout.addWidget(self.importButton)
         
-        self.convertButton = QPushButton("Convertir a JSON")
-        self.convertButton.clicked.connect(self.convertToJSON)
-        layout.addWidget(self.convertButton)
-        
-        # Configuración común de envío
+        self.convertButton = QPushButton("Actualizar Vista Árbol")
+        self.convertButton.clicked.connect(self.convertToTree)
+        btnLayout.addWidget(self.convertButton)
+        mainLayout.addLayout(btnLayout)
+
+        # Configuración común de envío (puedes dejarlo, o quitar si no es necesario en el editor)
         commonLayout = QHBoxLayout()
-        commonLayout.addWidget(QLabel("Modo de envío:"))
-        self.commonModeCombo = QComboBox()
-        self.commonModeCombo.addItems(["Programado", "Hora de sistema", "On-demand"])
-        commonLayout.addWidget(self.commonModeCombo)
         commonLayout.addWidget(QLabel("Tiempo (HH:MM:SS):"))
         self.commonTimeEdit = QLineEdit("00:00:00")
         commonLayout.addWidget(self.commonTimeEdit)
-        layout.addLayout(commonLayout)
-        
-        # Área de previsualización: pestañas para "JSON" y "Árbol"
+        mainLayout.addLayout(commonLayout)
+
+        # QTabWidget con dos pestañas fijas: "JSON" y "Árbol"
         self.previewTabWidget = QTabWidget()
         self.previewTabWidget.setMinimumHeight(400)
+
+        # Pestaña "JSON": editor de texto para el JSON
         self.jsonPreview = QTextEdit()
         self.jsonPreview.setReadOnly(False)
         self.previewTabWidget.addTab(self.jsonPreview, "JSON")
+
+        # Pestaña "Árbol": vista jerárquica del JSON
         self.treePreview = QTreeWidget()
         self.treePreview.setColumnCount(2)
         self.treePreview.setHeaderLabels(["Clave", "Valor"])
         self.previewTabWidget.addTab(self.treePreview, "Árbol")
-        layout.addWidget(self.previewTabWidget)
-        
-        # Widget dinámico para editar el JSON (Formulario Dinámico)
-        from .pubDynamicForm import DynamicPublisherMessageForm
-        self.dynamicWidget = DynamicPublisherMessageForm(self)
-        self.dynamicWidget.setMinimumHeight(400)
-        layout.addWidget(self.dynamicWidget)
-        
-        self.setLayout(layout)
-        
-    def switchMode(self, mode):
-        if mode == "Formulario Dinámico":
-            self.jsonPreview.hide()
-            self.treePreview.hide()
-            self.dynamicWidget.show()
-        else:
-            self.dynamicWidget.hide()
-            data = self.dynamicWidget.collect_form_data(self.dynamicWidget.formLayout)
-            self.jsonPreview.setPlainText(json.dumps(data, indent=2, ensure_ascii=False))
-            self.buildTreePreview(data)
-            self.jsonPreview.show()
-            self.treePreview.show()
-            
+
+        mainLayout.addWidget(self.previewTabWidget)
+
+        self.setLayout(mainLayout)
+
     def loadJSONFromFile(self):
         filepath, _ = QFileDialog.getOpenFileName(self, "Seleccione un archivo JSON", "", "JSON Files (*.json);;All Files (*)")
         if not filepath:
@@ -105,19 +87,23 @@ class PublisherEditorWidget(QWidget):
         try:
             with open(filepath, "r", encoding="utf-8") as f:
                 data = json.load(f)
+            # Actualiza el editor de texto en la pestaña JSON
             self.jsonPreview.setPlainText(json.dumps(data, indent=2, ensure_ascii=False))
+            # Actualiza la vista en árbol
             self.buildTreePreview(data)
-            self.dynamicWidget.build_form(data)
         except Exception as e:
             QMessageBox.critical(self, "Error", f"No se pudo cargar el JSON:\n{e}")
-        
-    def convertToJSON(self):
-        data = self.dynamicWidget.collect_form_data(self.dynamicWidget.formLayout)
-        json_text = json.dumps(data, indent=2, ensure_ascii=False)
-        self.jsonPreview.setPlainText(json_text)
-        self.buildTreePreview(data)
-        self.editModeSelector.setCurrentText("JSON")
-        
+
+    def convertToTree(self):
+        """
+        Convierte el contenido actual del editor de texto (JSON) en la vista de árbol.
+        """
+        try:
+            data = json.loads(self.jsonPreview.toPlainText())
+            self.buildTreePreview(data)
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Error al convertir a árbol:\n{e}")
+
     def buildTreePreview(self, data):
         self.treePreview.clear()
         items = build_tree_items(data)
