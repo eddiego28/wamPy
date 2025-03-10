@@ -1,14 +1,11 @@
 # publisher/pubGUI.py
 import sys, os, json, datetime, logging, asyncio, threading
-from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QLabel, QScrollArea,
-                             QTableWidgetItem, QHeaderView, QAbstractItemView, 
-                             QPushButton, QGroupBox, QFormLayout, QVBoxLayout, QHBoxLayout, QComboBox, 
-                             QLineEdit, QPushButton, QMessageBox, QTableWidget )
+from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QScrollArea, QTableWidget,
+                             QTableWidgetItem, QHeaderView, QAbstractItemView, QPushButton, QSplitter, QGroupBox, QFormLayout, QMessageBox)
 from PyQt5.QtCore import Qt, QTimer
 from autobahn.asyncio.wamp import ApplicationSession, ApplicationRunner
 from common.utils import log_to_file, JsonDetailDialog
 from .pubEditor import PublisherEditorWidget
-
 
 global_session = None
 global_loop = None
@@ -52,6 +49,7 @@ def send_message_now(topic, message, delay=0):
         print("Mensaje enviado en", topic, ":", message)
     asyncio.run_coroutine_threadsafe(_send(), global_loop)
 
+# Widget para mostrar el log de mensajes enviados (con altura fija)
 class PublisherMessageViewer(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -87,6 +85,7 @@ class PublisherMessageViewer(QWidget):
             dlg = JsonDetailDialog(self.pubMessages[row], self)
             dlg.exec_()
 
+# Pestaña del Publicador
 class PublisherTab(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -147,8 +146,8 @@ class PublisherTab(QWidget):
             start_publisher(config["router_url"], config["realm"], config["topic"])
             timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             self.addPublisherLog(config["realm"], config["topic"], timestamp, f"Publicador iniciado: {config}")
-            mode = widget.editorWidget.commonModeCombo.currentText()
-            if widget.editorWidget.commonTimeEdit.text().strip() != "00:00:00" and mode in ["Programado", "Hora de sistema"]:
+            # Si el tiempo es distinto de "00:00:00", programamos el envío
+            if widget.editorWidget.commonTimeEdit.text().strip() != "00:00:00":
                 try:
                     h, m, s = map(int, widget.editorWidget.commonTimeEdit.text().strip().split(":"))
                     delay = h * 3600 + m * 60 + s
@@ -164,9 +163,7 @@ class PublisherTab(QWidget):
             sent_message = json.dumps(config["content"], indent=2, ensure_ascii=False)
             self.addPublisherLog(config["realm"], config["topic"], timestamp, sent_message)
 
-# Definición de MessageConfigWidget
-import datetime
-from PyQt5.QtWidgets import QGroupBox, QFormLayout
+# Definición de MessageConfigWidget (actualizado sin referencia a commonModeCombo)
 class MessageConfigWidget(QGroupBox):
     def __init__(self, msg_id, parent=None):
         super().__init__(parent)
@@ -193,15 +190,15 @@ class MessageConfigWidget(QGroupBox):
 
         from .pubEditor import PublisherEditorWidget
         self.editorWidget = PublisherEditorWidget(parent=self)
-        self.editorWidget.commonModeCombo.currentTextChanged.connect(self.updateSendButtonState)
         contentLayout.addWidget(self.editorWidget)
 
         self.sendButton = QPushButton("Enviar")
         self.sendButton.clicked.connect(self.sendMessage)
+        # Habilitar siempre si el tiempo es "00:00:00"
         if self.editorWidget.commonTimeEdit.text().strip() == "00:00:00":
             self.sendButton.setEnabled(True)
         else:
-            self.sendButton.setEnabled(self.editorWidget.commonModeCombo.currentText() == "On-demand")
+            self.sendButton.setEnabled(False)
         contentLayout.addWidget(self.sendButton)
 
         self.contentWidget.setLayout(contentLayout)
@@ -209,24 +206,16 @@ class MessageConfigWidget(QGroupBox):
         mainLayout.addWidget(self.contentWidget)
         self.setLayout(mainLayout)
 
-    def updateSendButtonState(self, mode):
-        if self.editorWidget.commonTimeEdit.text().strip() == "00:00:00":
-            self.sendButton.setEnabled(True)
-        else:
-            self.sendButton.setEnabled(mode == "On-demand")
-
     def toggleContent(self, checked):
         self.contentWidget.setVisible(checked)
         if not checked:
             topic = self.topicEdit.text().strip()
-            mode = self.editorWidget.commonModeCombo.currentText()
             time_val = self.editorWidget.commonTimeEdit.text()
-            self.setTitle(f"Mensaje #{self.msg_id} - {topic} - {mode} - {time_val}")
+            self.setTitle(f"Mensaje #{self.msg_id} - {topic} - {time_val}")
         else:
             self.setTitle(f"Mensaje #{self.msg_id}")
 
     def sendMessage(self):
-        mode = self.editorWidget.commonModeCombo.currentText()
         try:
             h, m, s = map(int, self.editorWidget.commonTimeEdit.text().strip().split(":"))
             delay = h * 3600 + m * 60 + s
@@ -235,14 +224,11 @@ class MessageConfigWidget(QGroupBox):
         if self.editorWidget.commonTimeEdit.text().strip() == "00:00:00":
             delay = 0
         topic = self.topicEdit.text().strip()
-        if self.editorWidget.editModeSelector.currentText() == "Formulario Dinámico":
-            data = self.editorWidget.dynamicWidget.collect_form_data(self.editorWidget.dynamicWidget.formLayout)
-        else:
-            try:
-                data = json.loads(self.editorWidget.jsonPreview.toPlainText())
-            except Exception as e:
-                QMessageBox.critical(self, "Error", f"JSON inválido:\n{e}")
-                return
+        try:
+            data = json.loads(self.editorWidget.jsonPreview.toPlainText())
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"JSON inválido:\n{e}")
+            return
         from .pubGUI import send_message_now
         send_message_now(topic, data, delay=delay)
         publish_time = datetime.datetime.now() + datetime.timedelta(seconds=delay)
@@ -257,7 +243,5 @@ class MessageConfigWidget(QGroupBox):
             "realm": self.realmCombo.currentText(),
             "router_url": self.urlEdit.text().strip(),
             "topic": self.topicEdit.text().strip(),
-            "content": (self.editorWidget.dynamicWidget.collect_form_data(self.editorWidget.dynamicWidget.formLayout)
-                        if self.editorWidget.editModeSelector.currentText() == "Formulario Dinámico"
-                        else json.loads(self.editorWidget.jsonPreview.toPlainText()))
+            "content": json.loads(self.editorWidget.jsonPreview.toPlainText())
         }
