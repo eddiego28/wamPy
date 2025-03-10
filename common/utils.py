@@ -16,7 +16,7 @@ def log_to_file(time_str, topic, realm, message_json):
 
 class JsonDetailDialog(QDialog):
     """
-    Diálogo para mostrar el JSON formateado.
+    Diálogo para mostrar el contenido del JSON formateado.
     """
     def __init__(self, message_details, parent=None):
         super().__init__(parent)

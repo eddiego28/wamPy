@@ -9,6 +9,7 @@ from autobahn.asyncio.wamp import ApplicationSession, ApplicationRunner
 from common.utils import log_to_file, JsonDetailDialog
 from .pubEditor import PublisherEditorWidget
 
+
 global_session = None
 global_loop = None
 
@@ -16,13 +17,12 @@ class JSONPublisher(ApplicationSession):
     def __init__(self, config, topic):
         super().__init__(config)
         self.topic = topic
-
     async def onJoin(self, details):
         global global_session, global_loop
         global_session = self
         global_loop = asyncio.get_event_loop()
         print("Conexión establecida en el publicador (realm:", self.config.realm, ")")
-        await asyncio.Future()  # Mantiene la sesión activa
+        await asyncio.Future()
 
 def start_publisher(url, realm, topic):
     def run():
@@ -37,34 +37,27 @@ def send_message_now(topic, message, delay=0):
     if global_session is None or global_loop is None:
         print("No hay sesión activa. Inicia el publicador primero.")
         return
-
     async def _send():
         if delay > 0:
             await asyncio.sleep(delay)
-        # Si message es un dict con claves "args" y "kwargs", enviamos de esa forma:
-        if isinstance(message, dict) and "args" in message and "kwargs" in message:
-            global_session.publish(topic, *message["args"], **message["kwargs"])
+        # Forzamos el envío como kwargs si el mensaje es dict
+        if isinstance(message, dict):
+            global_session.publish(topic, **message)
         else:
             global_session.publish(topic, message)
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        # Para el log, si usamos el formato args/kwargs, lo registramos de esa forma:
-        if isinstance(message, dict) and "args" in message and "kwargs" in message:
-            log_entry = json.dumps({"args": message["args"], "kwargs": message["kwargs"]}, indent=2, ensure_ascii=False)
-        else:
-            log_entry = json.dumps(message, indent=2, ensure_ascii=False)
-        log_to_file(timestamp, topic, global_session.config.realm, log_entry)
+        message_json = json.dumps(message, indent=2, ensure_ascii=False)
+        log_to_file(timestamp, topic, global_session.config.realm, message_json)
         logging.info(f"Publicado: {timestamp} | Topic: {topic} | Realm: {global_session.config.realm}")
         print("Mensaje enviado en", topic, ":", message)
-
     asyncio.run_coroutine_threadsafe(_send(), global_loop)
 
-# --- Widget de resumen de mensajes enviados ---
 class PublisherMessageViewer(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.pubMessages = []
         self.initUI()
-
+        
     def initUI(self):
         layout = QVBoxLayout(self)
         self.table = QTableWidget()
@@ -76,8 +69,11 @@ class PublisherMessageViewer(QWidget):
         self.table.itemDoubleClicked.connect(self.showDetails)
         layout.addWidget(self.table)
         self.setLayout(layout)
+        self.setFixedHeight(200)
 
     def add_message(self, realm, topic, timestamp, details):
+        if isinstance(details, str):
+            details = details.replace("\n", " ")
         row = self.table.rowCount()
         self.table.insertRow(row)
         self.table.setItem(row, 0, QTableWidgetItem(timestamp))
@@ -91,7 +87,6 @@ class PublisherMessageViewer(QWidget):
             dlg = JsonDetailDialog(self.pubMessages[row], self)
             dlg.exec_()
 
-# --- Pestaña del Publicador ---
 class PublisherTab(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -106,19 +101,24 @@ class PublisherTab(QWidget):
         self.addMsgButton = QPushButton("Agregar mensaje")
         self.addMsgButton.clicked.connect(self.addMessage)
         topLayout.addWidget(self.addMsgButton)
-        self.asyncSendButton = QPushButton("Enviar Mensaje Asíncrono")
+        self.asyncSendButton = QPushButton("Enviar Mensaje Asincrónico")
         self.asyncSendButton.clicked.connect(self.sendAllAsync)
         topLayout.addWidget(self.asyncSendButton)
-        # Botones para detener y resetear (más adelante se agregarán si se desea)
         layout.addLayout(topLayout)
 
+        # Usamos QSplitter para dividir el área de mensajes y la zona de logs
+        splitter = QSplitter(Qt.Vertical)
         self.msgArea = QScrollArea()
         self.msgArea.setWidgetResizable(True)
         self.msgContainer = QWidget()
         self.msgLayout = QVBoxLayout()
         self.msgContainer.setLayout(self.msgLayout)
         self.msgArea.setWidget(self.msgContainer)
-        layout.addWidget(self.msgArea)
+        splitter.addWidget(self.msgArea)
+        self.viewer = PublisherMessageViewer(self)
+        splitter.addWidget(self.viewer)
+        splitter.setSizes([500, 200])
+        layout.addWidget(splitter)
 
         connLayout = QHBoxLayout()
         connLayout.addWidget(QLabel("Publicador Global"))
@@ -127,10 +127,8 @@ class PublisherTab(QWidget):
         connLayout.addWidget(self.globalStartButton)
         layout.addLayout(connLayout)
 
-        self.viewer = PublisherMessageViewer(self)
         layout.addWidget(QLabel("Resumen de mensajes enviados:"))
         layout.addWidget(self.viewer)
-
         self.setLayout(layout)
 
     def addMessage(self):
@@ -166,8 +164,9 @@ class PublisherTab(QWidget):
             sent_message = json.dumps(config["content"], indent=2, ensure_ascii=False)
             self.addPublisherLog(config["realm"], config["topic"], timestamp, sent_message)
 
-# --- Definición de MessageConfigWidget ---
+# Definición de MessageConfigWidget
 import datetime
+from PyQt5.QtWidgets import QGroupBox, QFormLayout
 class MessageConfigWidget(QGroupBox):
     def __init__(self, msg_id, parent=None):
         super().__init__(parent)
