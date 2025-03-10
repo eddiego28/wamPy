@@ -16,12 +16,13 @@ class JSONPublisher(ApplicationSession):
     def __init__(self, config, topic):
         super().__init__(config)
         self.topic = topic
+
     async def onJoin(self, details):
         global global_session, global_loop
         global_session = self
         global_loop = asyncio.get_event_loop()
         print("Conexión establecida en el publicador (realm:", self.config.realm, ")")
-        await asyncio.Future()
+        await asyncio.Future()  # Mantiene la sesión activa
 
 def start_publisher(url, realm, topic):
     def run():
@@ -36,22 +37,34 @@ def send_message_now(topic, message, delay=0):
     if global_session is None or global_loop is None:
         print("No hay sesión activa. Inicia el publicador primero.")
         return
+
     async def _send():
         if delay > 0:
             await asyncio.sleep(delay)
-        global_session.publish(topic, message)
+        # Si message es un dict con claves "args" y "kwargs", enviamos de esa forma:
+        if isinstance(message, dict) and "args" in message and "kwargs" in message:
+            global_session.publish(topic, *message["args"], **message["kwargs"])
+        else:
+            global_session.publish(topic, message)
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        message_json = json.dumps(message, indent=2, ensure_ascii=False)
-        log_to_file(timestamp, topic, global_session.config.realm, message_json)
+        # Para el log, si usamos el formato args/kwargs, lo registramos de esa forma:
+        if isinstance(message, dict) and "args" in message and "kwargs" in message:
+            log_entry = json.dumps({"args": message["args"], "kwargs": message["kwargs"]}, indent=2, ensure_ascii=False)
+        else:
+            log_entry = json.dumps(message, indent=2, ensure_ascii=False)
+        log_to_file(timestamp, topic, global_session.config.realm, log_entry)
         logging.info(f"Publicado: {timestamp} | Topic: {topic} | Realm: {global_session.config.realm}")
         print("Mensaje enviado en", topic, ":", message)
+
     asyncio.run_coroutine_threadsafe(_send(), global_loop)
 
+# --- Widget de resumen de mensajes enviados ---
 class PublisherMessageViewer(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.pubMessages = []
         self.initUI()
+
     def initUI(self):
         layout = QVBoxLayout(self)
         self.table = QTableWidget()
@@ -63,6 +76,7 @@ class PublisherMessageViewer(QWidget):
         self.table.itemDoubleClicked.connect(self.showDetails)
         layout.addWidget(self.table)
         self.setLayout(layout)
+
     def add_message(self, realm, topic, timestamp, details):
         row = self.table.rowCount()
         self.table.insertRow(row)
@@ -70,20 +84,24 @@ class PublisherMessageViewer(QWidget):
         self.table.setItem(row, 1, QTableWidgetItem(topic))
         self.table.setItem(row, 2, QTableWidgetItem(realm))
         self.pubMessages.append(details)
+
     def showDetails(self, item):
         row = item.row()
         if row < len(self.pubMessages):
             dlg = JsonDetailDialog(self.pubMessages[row], self)
             dlg.exec_()
 
+# --- Pestaña del Publicador ---
 class PublisherTab(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.msgWidgets = []
         self.next_id = 1
         self.initUI()
+
     def initUI(self):
         layout = QVBoxLayout()
+
         topLayout = QHBoxLayout()
         self.addMsgButton = QPushButton("Agregar mensaje")
         self.addMsgButton.clicked.connect(self.addMessage)
@@ -91,7 +109,9 @@ class PublisherTab(QWidget):
         self.asyncSendButton = QPushButton("Enviar Mensaje Asíncrono")
         self.asyncSendButton.clicked.connect(self.sendAllAsync)
         topLayout.addWidget(self.asyncSendButton)
+        # Botones para detener y resetear (más adelante se agregarán si se desea)
         layout.addLayout(topLayout)
+
         self.msgArea = QScrollArea()
         self.msgArea.setWidgetResizable(True)
         self.msgContainer = QWidget()
@@ -99,24 +119,30 @@ class PublisherTab(QWidget):
         self.msgContainer.setLayout(self.msgLayout)
         self.msgArea.setWidget(self.msgContainer)
         layout.addWidget(self.msgArea)
+
         connLayout = QHBoxLayout()
         connLayout.addWidget(QLabel("Publicador Global"))
         self.globalStartButton = QPushButton("Iniciar Publicador")
         self.globalStartButton.clicked.connect(self.startPublisher)
         connLayout.addWidget(self.globalStartButton)
         layout.addLayout(connLayout)
+
         self.viewer = PublisherMessageViewer(self)
         layout.addWidget(QLabel("Resumen de mensajes enviados:"))
         layout.addWidget(self.viewer)
+
         self.setLayout(layout)
+
     def addMessage(self):
         from .pubEditor import PublisherEditorWidget
         widget = MessageConfigWidget(self.next_id, parent=self)
         self.msgLayout.addWidget(widget)
         self.msgWidgets.append(widget)
         self.next_id += 1
+
     def addPublisherLog(self, realm, topic, timestamp, details):
         self.viewer.add_message(realm, topic, timestamp, details)
+
     def startPublisher(self):
         for widget in self.msgWidgets:
             config = widget.getConfig()
@@ -131,6 +157,7 @@ class PublisherTab(QWidget):
                 except:
                     delay = 0
                 QTimer.singleShot(delay * 1000, widget.sendMessage)
+
     def sendAllAsync(self):
         for widget in self.msgWidgets:
             config = widget.getConfig()
@@ -139,7 +166,8 @@ class PublisherTab(QWidget):
             sent_message = json.dumps(config["content"], indent=2, ensure_ascii=False)
             self.addPublisherLog(config["realm"], config["topic"], timestamp, sent_message)
 
-
+# --- Definición de MessageConfigWidget ---
+import datetime
 class MessageConfigWidget(QGroupBox):
     def __init__(self, msg_id, parent=None):
         super().__init__(parent)
@@ -154,27 +182,23 @@ class MessageConfigWidget(QGroupBox):
         self.contentWidget = QWidget()
         contentLayout = QVBoxLayout()
 
-        # Configuración básica
         formLayout = QFormLayout()
         self.realmCombo = QComboBox()
-        self.realmCombo.addItems(["default"])
+        self.realmCombo.addItems(["default", "ADS.MIDSHMI"])
         formLayout.addRow("Realm:", self.realmCombo)
-        self.urlEdit = QLineEdit("ws://127.0.0.1:60001")
+        self.urlEdit = QLineEdit("ws://127.0.0.1:60001/ws")
         formLayout.addRow("Router URL:", self.urlEdit)
         self.topicEdit = QLineEdit("com.ads.midshmi.topic")
         formLayout.addRow("Topic:", self.topicEdit)
         contentLayout.addLayout(formLayout)
 
-        # Editor: se importa la clase PublisherEditorWidget desde pubEditor.py
         from .pubEditor import PublisherEditorWidget
         self.editorWidget = PublisherEditorWidget(parent=self)
         self.editorWidget.commonModeCombo.currentTextChanged.connect(self.updateSendButtonState)
         contentLayout.addWidget(self.editorWidget)
 
-        # Botón para enviar mensaje
         self.sendButton = QPushButton("Enviar")
         self.sendButton.clicked.connect(self.sendMessage)
-        # Si el tiempo es "00:00:00", habilitamos el botón (on-demand)
         if self.editorWidget.commonTimeEdit.text().strip() == "00:00:00":
             self.sendButton.setEnabled(True)
         else:
@@ -209,7 +233,6 @@ class MessageConfigWidget(QGroupBox):
             delay = h * 3600 + m * 60 + s
         except:
             delay = 0
-        # Si el tiempo es "00:00:00", forzamos delay 0 (on-demand)
         if self.editorWidget.commonTimeEdit.text().strip() == "00:00:00":
             delay = 0
         topic = self.topicEdit.text().strip()
@@ -221,7 +244,6 @@ class MessageConfigWidget(QGroupBox):
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"JSON inválido:\n{e}")
                 return
-        # Se asume que send_message_now está definido en este módulo o importado
         from .pubGUI import send_message_now
         send_message_now(topic, data, delay=delay)
         publish_time = datetime.datetime.now() + datetime.timedelta(seconds=delay)
